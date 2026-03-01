@@ -1,12 +1,15 @@
 # Easy IMG Converter
 
-A desktop image converter built with Python + Tkinter.  
-Convert one image or bulk images into a format you choose with a simple UI.
+A desktop image converter built with Python + Tkinter.
+Convert one image or many images in bulk to a format you choose, with live queue status and preview.
 
 ## Features
 
-- Convert single or multiple images at once.
-- Choose output format:
+- Modern two-panel UI:
+  - Left: file queue table
+  - Right: image preview + conversion settings
+- Bulk conversion (single or multiple images).
+- Supported output formats:
   - PNG (`.png`)
   - JPEG (`.jpg`)
   - WEBP (`.webp`)
@@ -14,10 +17,17 @@ Convert one image or bulk images into a format you choose with a simple UI.
   - TIFF (`.tiff`)
   - GIF (`.gif`)
   - ICO (`.ico`)
-- Select custom output folder.
-- Adjustable quality (for JPEG and WEBP).
-- Auto-rename output files to avoid overwriting.
-- Progress bar and conversion summary.
+- Queue table columns:
+  - File name
+  - File size
+  - Source format
+  - Target format
+  - Status (`Queued`, `Converting`, `Done`, `Failed`)
+- Click a queued file to preview thumbnail and metadata.
+- Adjustable quality for JPEG/WEBP (1-100).
+- Auto-rename outputs to avoid overwriting (`name_1`, `name_2`, ...).
+- Progress bar, `x / total` counter, and ETA during conversion.
+- Quick button to open output folder after conversion.
 
 ## Requirements
 
@@ -33,7 +43,7 @@ pip install pillow
 
 ## Run
 
-From the `Easy IMG Converter` folder:
+From the `Easy IMG Converter` folder, run:
 
 ```bash
 python IMG_Converter.py
@@ -41,20 +51,23 @@ python IMG_Converter.py
 
 ## How To Use
 
-1. Click **Add Images** and select one or many image files.
-2. Choose the **Target format**.
-3. (Optional) Set **JPEG/WEBP quality** (1-100).
-4. Choose **Output folder**.
-5. Click **Start Conversion**.
+1. Click **Add Images** to load one or many files.
+2. (Optional) Use **Remove Selected** or **Clear Queue** to manage the list.
+3. Choose your **Target Format**.
+4. (Optional) Set **Quality** for JPEG/WEBP.
+5. Select the **Output Folder**.
+6. Click **Start Conversion**.
+7. Click **Open Output Folder** to view converted files.
 
 ## Notes
 
-- Some formats (like JPEG/BMP) do not support transparency.  
-  Transparent images are automatically flattened to a white background.
-- If an output filename already exists, the app creates a new name like:
+- Formats like JPEG/BMP do not support transparency.
+  Transparent images are flattened to a white background automatically.
+- If an output file already exists, the app generates a safe new name:
   - `photo.png`
   - `photo_1.png`
   - `photo_2.png`
+- **Open Output Folder** uses `os.startfile`, so it works on Windows.
 
 ## Project Structure
 
@@ -62,6 +75,5 @@ python IMG_Converter.py
 Easy IMG Converter/
   IMG_Converter.py
   README.md
-  Output/
+  Output/    # optional folder for exported files
 ```
-

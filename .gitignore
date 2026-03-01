@@ -1,0 +1,6 @@
+# Ignore converted images output folder
+Converted IMG/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
