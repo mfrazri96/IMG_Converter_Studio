@@ -18,8 +18,10 @@ Convert or enhance one image or many images in bulk, with live queue status and 
   - GIF (`.gif`)
   - ICO (`.ico`)
 - `Mode: Enhance` (Real-ESRGAN):
+  - speed profile (`Fast`, `Quality`)
   - model selection (`RealESRGAN_x4plus`, `RealESRGAN_x2plus`, `RealESRGAN_x4plus_anime_6B`)
   - output scaling (`x2`, `x4`)
+  - tile size control
   - weights file selection (`.pth`)
   - output naming pattern: `filename_enhanced_<model>_x<scale>.png`
 - Queue table columns:
@@ -76,7 +78,9 @@ python -m unittest discover -s tests
    - choose **Target Format**
    - (optional) set **Quality** for JPEG/WEBP
 5. If in `Enhance` mode:
+   - choose **Speed Profile** (`Fast`/`Quality`)
    - choose **Real-ESRGAN Model** and **Output Scale**
+   - (optional) adjust **Tile Size** for speed/memory balance
    - pick the weights `.pth` file path
 6. Select the **Output Folder**.
 7. Click **Start Conversion** or **Start Enhancement**.
@@ -91,8 +95,9 @@ python -m unittest discover -s tests
   - `photo_1.png`
   - `photo_2.png`
 - Enhancement requires matching Real-ESRGAN `.pth` weights for the selected model.
+- App auto-detects weights from `Model/` first, then `weights/`.
 - Recommended default weights path:
-  `weights/RealESRGAN_x4plus.pth`
+  `Model/RealESRGAN_x4plus.pth`
 - **Open Output Folder** uses `os.startfile`, so it works on Windows.
 
 ## Project Structure

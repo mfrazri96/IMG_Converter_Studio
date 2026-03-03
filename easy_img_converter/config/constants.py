@@ -3,7 +3,7 @@ from pathlib import Path
 APP_TITLE = "Easy IMG Converter"
 WINDOW_SIZE = "1120x700"
 MIN_WINDOW_SIZE = (1000, 640)
-DEFAULT_REALESRGAN_WEIGHTS = Path.cwd() / "weights" / "RealESRGAN_x4plus.pth"
+DEFAULT_REALESRGAN_WEIGHTS = Path.cwd() / "Model" / "RealESRGAN_x4plus.pth"
 
 COLORS = {
     "bg": "#f2f6fb",
@@ -35,3 +35,5 @@ REALESRGAN_MODELS = [
     "RealESRGAN_x2plus",
     "RealESRGAN_x4plus_anime_6B",
 ]
+
+ENHANCE_PROFILES = ["Fast", "Quality"]

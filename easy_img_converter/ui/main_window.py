@@ -10,6 +10,7 @@ from easy_img_converter.config.constants import (
     APP_TITLE,
     COLORS,
     DEFAULT_REALESRGAN_WEIGHTS,
+    ENHANCE_PROFILES,
     FORMAT_MAP,
     MIN_WINDOW_SIZE,
     REALESRGAN_MODELS,
@@ -48,6 +49,8 @@ class MainWindow:
 
         self.sr_model_name = tk.StringVar(value="RealESRGAN_x4plus")
         self.enhance_scale = tk.IntVar(value=4)
+        self.enhance_profile = tk.StringVar(value="Quality")
+        self.tile_size = tk.IntVar(value=400)
         self.model_path = tk.StringVar(value=str(DEFAULT_REALESRGAN_WEIGHTS))
 
         self.status_text = tk.StringVar(value="Ready")
@@ -132,6 +135,7 @@ class MainWindow:
         self._build_left_panel(workspace)
         self._build_right_panel(workspace)
         self._apply_mode_to_ui()
+        self._apply_enhance_profile_to_settings(force=True)
         self._sync_model_path_with_selection(force=True)
 
     def _build_left_panel(self, parent):
@@ -251,7 +255,18 @@ class MainWindow:
         self.enhance_frame.grid(row=3, column=0, columnspan=3, sticky="we", pady=(8, 0))
         self.enhance_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(self.enhance_frame, text="Real-ESRGAN Model", style="Info.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(self.enhance_frame, text="Speed Profile", style="Info.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        profile_combo = ttk.Combobox(
+            self.enhance_frame,
+            textvariable=self.enhance_profile,
+            values=ENHANCE_PROFILES,
+            state="readonly",
+            width=14,
+        )
+        profile_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
+        profile_combo.bind("<<ComboboxSelected>>", self.on_profile_change)
+
+        ttk.Label(self.enhance_frame, text="Real-ESRGAN Model", style="Info.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 4))
         model_combo = ttk.Combobox(
             self.enhance_frame,
             textvariable=self.sr_model_name,
@@ -259,20 +274,25 @@ class MainWindow:
             state="readonly",
             width=24,
         )
-        model_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
+        model_combo.grid(row=1, column=1, sticky="w", pady=(0, 4))
         model_combo.bind("<<ComboboxSelected>>", self.on_enhance_selection_change)
 
-        ttk.Label(self.enhance_frame, text="Output Scale", style="Info.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(self.enhance_frame, text="Output Scale", style="Info.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 4))
         scale_combo = ttk.Combobox(self.enhance_frame, textvariable=self.enhance_scale, values=[2, 4], state="readonly", width=10)
         scale_combo.grid(
-            row=1, column=1, sticky="w", pady=(0, 4)
+            row=2, column=1, sticky="w", pady=(0, 4)
         )
         scale_combo.bind("<<ComboboxSelected>>", self.on_enhance_scale_change)
 
-        ttk.Label(self.enhance_frame, text="Weights .pth path", style="Info.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 4))
-        ttk.Entry(self.enhance_frame, textvariable=self.model_path).grid(row=2, column=1, sticky="we", pady=(0, 4))
+        ttk.Label(self.enhance_frame, text="Tile Size", style="Info.TLabel").grid(row=3, column=0, sticky="w", pady=(0, 4))
+        ttk.Spinbox(self.enhance_frame, from_=200, to=1200, increment=100, textvariable=self.tile_size, width=10).grid(
+            row=3, column=1, sticky="w", pady=(0, 4)
+        )
+
+        ttk.Label(self.enhance_frame, text="Weights .pth path", style="Info.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(self.enhance_frame, textvariable=self.model_path).grid(row=4, column=1, sticky="we", pady=(0, 4))
         ttk.Button(self.enhance_frame, text="Browse", command=self.select_model_file, style="Soft.TButton").grid(
-            row=2, column=2, padx=(8, 0), pady=(0, 4)
+            row=4, column=2, padx=(8, 0), pady=(0, 4)
         )
 
         ttk.Label(settings_card, text="Output Folder", style="Info.TLabel").grid(row=4, column=0, sticky="w", pady=(8, 4))
@@ -378,7 +398,27 @@ class MainWindow:
     def _suggest_model_path(self):
         model_name = self.sr_model_name.get()
         project_root = Path.cwd()
-        return project_root / "weights" / f"{model_name}.pth"
+        model_dir = project_root / "Model"
+        weights_dir = project_root / "weights"
+
+        # Priority 1: exact filename match.
+        exact_model = model_dir / f"{model_name}.pth"
+        if exact_model.exists():
+            return exact_model
+        exact_weights = weights_dir / f"{model_name}.pth"
+        if exact_weights.exists():
+            return exact_weights
+
+        # Priority 2: first matching variant (e.g. "RealESRGAN_x2plus (1).pth").
+        for base_dir in (model_dir, weights_dir):
+            if not base_dir.exists():
+                continue
+            candidates = sorted(base_dir.glob(f"{model_name}*.pth"))
+            if candidates:
+                return candidates[0]
+
+        # Fallback path to show user the expected location.
+        return exact_model
 
     def _sync_model_path_with_selection(self, force=False):
         suggested = self._suggest_model_path()
@@ -388,7 +428,7 @@ class MainWindow:
             self.model_path.set(str(suggested))
             return
 
-        if current is None or current.name.startswith(self.sr_model_name.get()):
+        if current is None or current.name.startswith(self.sr_model_name.get()) or not current.exists():
             if suggested.exists():
                 self.model_path.set(str(suggested))
             elif current is None:
@@ -416,6 +456,7 @@ class MainWindow:
         else:
             self.enhance_scale.set(4)
         self._sync_model_path_with_selection(force=False)
+        self._sync_profile_from_settings()
 
     def on_enhance_scale_change(self, _event=None):
         # Keep model scale coherent with the selected output scale.
@@ -425,6 +466,32 @@ class MainWindow:
         elif int(self.enhance_scale.get()) == 4 and self.sr_model_name.get() == "RealESRGAN_x2plus":
             self.sr_model_name.set("RealESRGAN_x4plus")
             self._sync_model_path_with_selection(force=False)
+        self._sync_profile_from_settings()
+
+    def _apply_enhance_profile_to_settings(self, force=False):
+        profile = self.enhance_profile.get()
+        if profile == "Fast":
+            self.sr_model_name.set("RealESRGAN_x2plus")
+            self.enhance_scale.set(2)
+            self.tile_size.set(800)
+        else:
+            self.sr_model_name.set("RealESRGAN_x4plus")
+            self.enhance_scale.set(4)
+            self.tile_size.set(400)
+
+        self._sync_model_path_with_selection(force=force)
+        self._refresh_target_column()
+
+    def _sync_profile_from_settings(self):
+        model = self.sr_model_name.get()
+        scale = int(self.enhance_scale.get())
+        if model == "RealESRGAN_x2plus" and scale == 2:
+            self.enhance_profile.set("Fast")
+        elif model == "RealESRGAN_x4plus" and scale == 4:
+            self.enhance_profile.set("Quality")
+
+    def on_profile_change(self, _event=None):
+        self._apply_enhance_profile_to_settings(force=False)
 
     def _apply_mode_to_ui(self):
         if self.mode.get() == "Convert":
@@ -530,6 +597,7 @@ class MainWindow:
                 upsampler = build_upsampler(
                     weights_path=self.model_path.get().strip(),
                     model_name=self.sr_model_name.get(),
+                    tile=int(self.tile_size.get()),
                 )
             except Exception as exc:
                 messagebox.showerror("Enhancement Setup Error", str(exc))
