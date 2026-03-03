@@ -455,17 +455,17 @@ class MainWindow:
             self.enhance_scale.set(2)
         else:
             self.enhance_scale.set(4)
-        self._sync_model_path_with_selection(force=False)
+        self._sync_model_path_with_selection(force=True)
         self._sync_profile_from_settings()
 
     def on_enhance_scale_change(self, _event=None):
         # Keep model scale coherent with the selected output scale.
         if int(self.enhance_scale.get()) == 2 and self.sr_model_name.get() != "RealESRGAN_x2plus":
             self.sr_model_name.set("RealESRGAN_x2plus")
-            self._sync_model_path_with_selection(force=False)
+            self._sync_model_path_with_selection(force=True)
         elif int(self.enhance_scale.get()) == 4 and self.sr_model_name.get() == "RealESRGAN_x2plus":
             self.sr_model_name.set("RealESRGAN_x4plus")
-            self._sync_model_path_with_selection(force=False)
+            self._sync_model_path_with_selection(force=True)
         self._sync_profile_from_settings()
 
     def _apply_enhance_profile_to_settings(self, force=False):
@@ -590,13 +590,26 @@ class MainWindow:
         upsampler = None
         if mode == "Enhance":
             try:
+                selected_model = self.sr_model_name.get()
+                selected_weights = Path(self.model_path.get().strip())
+                if selected_weights.name and selected_model not in selected_weights.name:
+                    suggested = self._suggest_model_path()
+                    if suggested.exists():
+                        self.model_path.set(str(suggested))
+                        selected_weights = suggested
+                    else:
+                        raise RuntimeError(
+                            f"Selected model '{selected_model}' does not match weights file '{selected_weights.name}'. "
+                            "Please choose matching weights."
+                        )
+
                 validate_enhance_ready(
-                    weights_path=self.model_path.get().strip(),
-                    model_name=self.sr_model_name.get(),
+                    weights_path=str(selected_weights),
+                    model_name=selected_model,
                 )
                 upsampler = build_upsampler(
-                    weights_path=self.model_path.get().strip(),
-                    model_name=self.sr_model_name.get(),
+                    weights_path=str(selected_weights),
+                    model_name=selected_model,
                     tile=int(self.tile_size.get()),
                 )
             except Exception as exc:
