@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -39,6 +40,9 @@ class MainWindow:
         self.queue = FileQueue()
         self.preview_image_ref = None
         self.last_output_dir = None
+        self.is_processing = False
+        self.worker_thread = None
+        self.busy_controls = []
 
         self.format_map = FORMAT_MAP
 
@@ -181,11 +185,14 @@ class MainWindow:
 
         actions = ttk.Frame(left_card, style="Card.TFrame")
         actions.grid(row=3, column=0, sticky="we", pady=(10, 0))
-        ttk.Button(actions, text="Add Images", command=self.add_images, style="Primary.TButton").pack(side="left")
-        ttk.Button(actions, text="Remove Selected", command=self.remove_selected, style="Soft.TButton").pack(
+        self.add_button = ttk.Button(actions, text="Add Images", command=self.add_images, style="Primary.TButton")
+        self.add_button.pack(side="left")
+        self.remove_button = ttk.Button(actions, text="Remove Selected", command=self.remove_selected, style="Soft.TButton")
+        self.remove_button.pack(
             side="left", padx=(8, 0)
         )
-        ttk.Button(actions, text="Clear Queue", command=self.clear_images, style="Soft.TButton").pack(
+        self.clear_button = ttk.Button(actions, text="Clear Queue", command=self.clear_images, style="Soft.TButton")
+        self.clear_button.pack(
             side="left", padx=(8, 0)
         )
 
@@ -229,9 +236,11 @@ class MainWindow:
         ttk.Label(settings_card, text="Settings", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
 
         ttk.Label(settings_card, text="Mode", style="Info.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 4))
-        mode_combo = ttk.Combobox(settings_card, textvariable=self.mode, values=["Convert", "Enhance"], state="readonly", width=16)
-        mode_combo.grid(row=1, column=1, sticky="w", pady=(10, 4))
-        mode_combo.bind("<<ComboboxSelected>>", self.on_mode_change)
+        self.mode_combo = ttk.Combobox(
+            settings_card, textvariable=self.mode, values=["Convert", "Enhance"], state="readonly", width=16
+        )
+        self.mode_combo.grid(row=1, column=1, sticky="w", pady=(10, 4))
+        self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_change)
 
         self.convert_frame = ttk.Frame(settings_card, style="Card.TFrame")
         self.convert_frame.grid(row=2, column=0, columnspan=3, sticky="we", pady=(6, 0))
@@ -256,48 +265,59 @@ class MainWindow:
         self.enhance_frame.columnconfigure(1, weight=1)
 
         ttk.Label(self.enhance_frame, text="Speed Profile", style="Info.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        profile_combo = ttk.Combobox(
+        self.profile_combo = ttk.Combobox(
             self.enhance_frame,
             textvariable=self.enhance_profile,
             values=ENHANCE_PROFILES,
             state="readonly",
             width=14,
         )
-        profile_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
-        profile_combo.bind("<<ComboboxSelected>>", self.on_profile_change)
+        self.profile_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
+        self.profile_combo.bind("<<ComboboxSelected>>", self.on_profile_change)
 
         ttk.Label(self.enhance_frame, text="Real-ESRGAN Model", style="Info.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 4))
-        model_combo = ttk.Combobox(
+        self.model_combo = ttk.Combobox(
             self.enhance_frame,
             textvariable=self.sr_model_name,
             values=REALESRGAN_MODELS,
             state="readonly",
             width=24,
         )
-        model_combo.grid(row=1, column=1, sticky="w", pady=(0, 4))
-        model_combo.bind("<<ComboboxSelected>>", self.on_enhance_selection_change)
+        self.model_combo.grid(row=1, column=1, sticky="w", pady=(0, 4))
+        self.model_combo.bind("<<ComboboxSelected>>", self.on_enhance_selection_change)
 
         ttk.Label(self.enhance_frame, text="Output Scale", style="Info.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 4))
-        scale_combo = ttk.Combobox(self.enhance_frame, textvariable=self.enhance_scale, values=[2, 4], state="readonly", width=10)
-        scale_combo.grid(
+        self.scale_combo = ttk.Combobox(
+            self.enhance_frame, textvariable=self.enhance_scale, values=[2, 4], state="readonly", width=10
+        )
+        self.scale_combo.grid(
             row=2, column=1, sticky="w", pady=(0, 4)
         )
-        scale_combo.bind("<<ComboboxSelected>>", self.on_enhance_scale_change)
+        self.scale_combo.bind("<<ComboboxSelected>>", self.on_enhance_scale_change)
 
         ttk.Label(self.enhance_frame, text="Tile Size", style="Info.TLabel").grid(row=3, column=0, sticky="w", pady=(0, 4))
-        ttk.Spinbox(self.enhance_frame, from_=200, to=1200, increment=100, textvariable=self.tile_size, width=10).grid(
+        self.tile_spinbox = ttk.Spinbox(
+            self.enhance_frame, from_=200, to=1200, increment=100, textvariable=self.tile_size, width=10
+        )
+        self.tile_spinbox.grid(
             row=3, column=1, sticky="w", pady=(0, 4)
         )
 
         ttk.Label(self.enhance_frame, text="Weights .pth path", style="Info.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 4))
-        ttk.Entry(self.enhance_frame, textvariable=self.model_path).grid(row=4, column=1, sticky="we", pady=(0, 4))
-        ttk.Button(self.enhance_frame, text="Browse", command=self.select_model_file, style="Soft.TButton").grid(
+        self.weights_entry = ttk.Entry(self.enhance_frame, textvariable=self.model_path)
+        self.weights_entry.grid(row=4, column=1, sticky="we", pady=(0, 4))
+        self.weights_browse_button = ttk.Button(
+            self.enhance_frame, text="Browse", command=self.select_model_file, style="Soft.TButton"
+        )
+        self.weights_browse_button.grid(
             row=4, column=2, padx=(8, 0), pady=(0, 4)
         )
 
         ttk.Label(settings_card, text="Output Folder", style="Info.TLabel").grid(row=4, column=0, sticky="w", pady=(8, 4))
-        ttk.Entry(settings_card, textvariable=self.output_folder).grid(row=4, column=1, sticky="we", pady=(8, 4))
-        ttk.Button(settings_card, text="Browse", command=self.select_output_folder, style="Soft.TButton").grid(
+        self.output_entry = ttk.Entry(settings_card, textvariable=self.output_folder)
+        self.output_entry.grid(row=4, column=1, sticky="we", pady=(8, 4))
+        self.output_browse_button = ttk.Button(settings_card, text="Browse", command=self.select_output_folder, style="Soft.TButton")
+        self.output_browse_button.grid(
             row=4, column=2, padx=(8, 0), pady=(8, 4)
         )
 
@@ -305,7 +325,10 @@ class MainWindow:
 
         self.run_button = ttk.Button(settings_card, text="Start Conversion", command=self.start_jobs, style="Primary.TButton")
         self.run_button.grid(row=6, column=0, columnspan=3, sticky="we")
-        ttk.Button(settings_card, text="Open Output Folder", command=self.open_output_folder, style="Soft.TButton").grid(
+        self.open_output_button = ttk.Button(
+            settings_card, text="Open Output Folder", command=self.open_output_folder, style="Soft.TButton"
+        )
+        self.open_output_button.grid(
             row=7, column=0, columnspan=3, sticky="we", pady=(8, 0)
         )
 
@@ -322,6 +345,22 @@ class MainWindow:
         status_row.columnconfigure(0, weight=1)
         ttk.Label(status_row, textvariable=self.status_text, style="Info.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(status_row, textvariable=self.progress_text, style="Info.TLabel").grid(row=0, column=1, sticky="e")
+
+        self.busy_controls = [
+            self.add_button,
+            self.remove_button,
+            self.clear_button,
+            self.mode_combo,
+            self.profile_combo,
+            self.model_combo,
+            self.scale_combo,
+            self.tile_spinbox,
+            self.weights_entry,
+            self.weights_browse_button,
+            self.output_entry,
+            self.output_browse_button,
+            self.run_button,
+        ]
 
     def _target_display(self):
         if self.mode.get() == "Convert":
@@ -566,7 +605,100 @@ class MainWindow:
 
         self.table.item(row_id, values=values, tags=(tag,))
 
+    def _set_busy_state(self, busy):
+        self.is_processing = busy
+        for control in self.busy_controls:
+            try:
+                control.configure(state="disabled" if busy else "normal")
+            except tk.TclError:
+                pass
+
+        # Keep readonly combobox behavior when re-enabled.
+        if not busy:
+            for combo in (self.mode_combo, self.profile_combo, self.model_combo, self.scale_combo):
+                combo.configure(state="readonly")
+
+    def _finish_jobs(self, mode, total, completed, failed, skipped, output_dir):
+        self.last_output_dir = output_dir
+        self.status_text.set(f"Completed. Success: {completed}, Failed: {failed}, Skipped: {skipped}")
+        self._set_busy_state(False)
+        messagebox.showinfo(
+            "Job Finished",
+            f"Mode: {mode}\n\nTotal files: {total}\nSuccess: {completed}\nSkipped: {skipped}\nFailed: {failed}\nOutput folder: {output_dir}",
+        )
+
+    def _handle_worker_error(self, title, error_text):
+        self.status_text.set("Failed to start processing.")
+        self._set_busy_state(False)
+        messagebox.showerror(title, error_text)
+
+    def _run_jobs_worker(self, job):
+        mode = job["mode"]
+        files = job["files"]
+        output_dir = job["output_dir"]
+        total = len(files)
+        completed = 0
+        failed = 0
+        skipped = 0
+        start_time = time.time()
+
+        upsampler = None
+        if mode == "Enhance":
+            try:
+                upsampler = build_upsampler(
+                    weights_path=job["weights_path"],
+                    model_name=job["model_name"],
+                    tile=job["tile_size"],
+                )
+            except Exception as exc:
+                self.root.after(0, self._handle_worker_error, "Enhancement Setup Error", str(exc))
+                return
+
+        for index, input_file in enumerate(files, start=1):
+            file_name = Path(input_file).name
+            self.root.after(0, self._set_row_status, input_file, "Converting")
+            self.root.after(0, self.status_text.set, f"{mode}: {file_name} ({index}/{total})")
+            self.root.after(0, self.progress_text.set, f"{index - 1} / {total}")
+
+            try:
+                if mode == "Convert":
+                    process_convert(
+                        input_file=input_file,
+                        output_dir=output_dir,
+                        save_format=job["save_format"],
+                        extension=job["extension"],
+                        quality=job["quality"],
+                    )
+                    completed += 1
+                else:
+                    process_enhance(
+                        input_file=input_file,
+                        output_dir=output_dir,
+                        upsampler=upsampler,
+                        model_name=job["model_name"],
+                        outscale=job["outscale"],
+                    )
+                    completed += 1
+                self.root.after(0, self._set_row_status, input_file, "Done")
+            except Exception:
+                failed += 1
+                self.root.after(0, self._set_row_status, input_file, "Failed")
+
+            progress_percent = (index / total) * 100
+            elapsed = time.time() - start_time
+            per_file = elapsed / index
+            eta = int(per_file * (total - index))
+            self.root.after(0, self.progress_value.set, progress_percent)
+            self.root.after(0, self.status_text.set, f"Processed {index}/{total} | ETA: {eta}s")
+            self.root.after(0, self.progress_text.set, f"{index} / {total}")
+
+        self.root.after(0, self._finish_jobs, mode, total, completed, failed, skipped, output_dir)
+
     def start_jobs(self):
+        if self.is_processing:
+            messagebox.showinfo("Processing", "A job is already running. Please wait until it finishes.")
+            return
+
         if not self.queue.selected_files:
             messagebox.showerror("No Images Selected", "Please add at least one image file.")
             return
@@ -587,7 +719,12 @@ class MainWindow:
                 messagebox.showerror("Invalid Format", "Please choose a valid target format.")
                 return
 
-        upsampler = None
+        job = {
+            "mode": mode,
+            "output_dir": output_dir,
+            "files": list(self.queue.selected_files),
+        }
+
         if mode == "Enhance":
             try:
                 selected_model = self.sr_model_name.get()
@@ -607,74 +744,45 @@ class MainWindow:
                     weights_path=str(selected_weights),
                     model_name=selected_model,
                 )
-                upsampler = build_upsampler(
-                    weights_path=str(selected_weights),
-                    model_name=selected_model,
-                    tile=int(self.tile_size.get()),
+                job.update(
+                    {
+                        "model_name": selected_model,
+                        "weights_path": str(selected_weights),
+                        "outscale": int(self.enhance_scale.get()),
+                        "tile_size": int(self.tile_size.get()),
+                    }
                 )
             except Exception as exc:
                 messagebox.showerror("Enhancement Setup Error", str(exc))
                 return
+        else:
+            format_name = self.target_format.get()
+            save_format, extension = self.format_map[format_name]
+            quality = max(1, min(100, int(self.quality.get())))
+            job.update(
+                {
+                    "save_format": save_format,
+                    "extension": extension,
+                    "quality": quality,
+                }
+            )
 
-        total = len(self.queue.selected_files)
-        completed = 0
-        failed = 0
-        skipped = 0
-        start_time = time.time()
+        total = len(job["files"])
+        self._set_busy_state(True)
 
         self.progress_value.set(0)
         self.progress_text.set(f"0 / {total}")
-        self.root.update_idletasks()
+        self.status_text.set("Starting...")
 
-        for path in self.queue.selected_files:
+        for path in job["files"]:
             self._set_row_status(path, "Queued")
 
-        for index, input_file in enumerate(self.queue.selected_files, start=1):
-            file_name = Path(input_file).name
-            self._set_row_status(input_file, "Converting")
-            self.status_text.set(f"{mode}: {file_name} ({index}/{total})")
-            self.progress_text.set(f"{index - 1} / {total}")
-            self.root.update_idletasks()
-
-            try:
-                if mode == "Convert":
-                    format_name = self.target_format.get()
-                    save_format, extension = self.format_map[format_name]
-                    quality = max(1, min(100, int(self.quality.get())))
-                    process_convert(input_file, output_dir, save_format, extension, quality)
-                    completed += 1
-                    self._set_row_status(input_file, "Done")
-                else:
-                    result = process_enhance(
-                        input_file=input_file,
-                        output_dir=output_dir,
-                        upsampler=upsampler,
-                        model_name=self.sr_model_name.get(),
-                        outscale=int(self.enhance_scale.get()),
-                    )
-                    if result == "skipped":
-                        skipped += 1
-                    else:
-                        completed += 1
-                    self._set_row_status(input_file, "Done")
-            except Exception:
-                failed += 1
-                self._set_row_status(input_file, "Failed")
-
-            self.progress_value.set((index / total) * 100)
-            elapsed = time.time() - start_time
-            per_file = elapsed / index
-            eta = int(per_file * (total - index))
-            self.status_text.set(f"Processed {index}/{total} | ETA: {eta}s")
-            self.progress_text.set(f"{index} / {total}")
-            self.root.update_idletasks()
-
-        self.last_output_dir = output_dir
-        self.status_text.set(f"Completed. Success: {completed}, Failed: {failed}, Skipped: {skipped}")
-        messagebox.showinfo(
-            "Job Finished",
-            f"Mode: {mode}\n\nTotal files: {total}\nSuccess: {completed}\nSkipped: {skipped}\nFailed: {failed}\nOutput folder: {output_dir}",
+        self.worker_thread = threading.Thread(
+            target=self._run_jobs_worker,
+            args=(job,),
+            daemon=True,
         )
+        self.worker_thread.start()
 
     def run(self):
         self.root.mainloop()
