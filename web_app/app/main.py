@@ -97,7 +97,6 @@ job_lock = threading.Lock()
 
 
 app = FastAPI(title="Easy IMG Studio API", version="1.0.0")
-app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
 
 
 def safe_output_path(output_dir: Path, stem: str, extension: str) -> Path:
@@ -336,3 +335,7 @@ def download_output(job_id: str, filename: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path=str(file_path), filename=filename)
+
+
+# Mount static UI after API routes so /api/* doesn't get shadowed.
+app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
