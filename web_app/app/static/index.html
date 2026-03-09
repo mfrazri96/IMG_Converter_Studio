@@ -962,7 +962,7 @@ Failed  : ${job.failed}`;
           outputsEl.appendChild(a);
         }
 
-        if (job.outputs?.length && job.download_all) {
+        if ((job.status === 'completed' || job.status === 'failed') && job.outputs?.length && job.download_all) {
           downloadAllBtn.href = job.download_all;
           downloadAllBtn.style.display = 'inline-flex';
         } else {

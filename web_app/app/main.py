@@ -323,6 +323,9 @@ def get_job(job_id: str):
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
+        download_all = None
+        if job.status in {"completed", "failed"} and job.outputs:
+            download_all = f"/api/download-zip/{job.id}"
         return {
             "id": job.id,
             "mode": job.mode,
@@ -332,7 +335,7 @@ def get_job(job_id: str):
             "failed": job.failed,
             "errors": job.errors[-5:],
             "outputs": [f"/api/download/{job.id}/{name}" for name in job.outputs],
-            "download_all": f"/api/download-zip/{job.id}",
+            "download_all": download_all,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
         }
@@ -348,6 +351,13 @@ def download_output(job_id: str, filename: str):
 
 @app.get("/api/download-zip/{job_id}")
 def download_all_outputs(job_id: str):
+    with job_lock:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status == "running":
+            raise HTTPException(status_code=409, detail="Job is still running. Please wait until completion.")
+
     output_dir = OUTPUT_DIR / job_id
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Job output not found")
@@ -357,9 +367,11 @@ def download_all_outputs(job_id: str):
         raise HTTPException(status_code=404, detail="No output files for this job")
 
     zip_path = output_dir / "_all_outputs.zip"
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    tmp_zip_path = output_dir / "_all_outputs.tmp.zip"
+    with zipfile.ZipFile(tmp_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for f in files:
             zf.write(f, arcname=f.name)
+    os.replace(tmp_zip_path, zip_path)
 
     return FileResponse(path=str(zip_path), filename=f"easy-img-studio-{job_id}.zip")
 
