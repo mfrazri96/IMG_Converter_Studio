@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easy-img-studio"
+version = "1.0.0"
+description = "Local and Docker-ready image conversion and enhancement app."
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi==0.111.1",
+  "uvicorn[standard]==0.30.3",
+  "python-multipart==0.0.9",
+  "pillow==10.4.0",
+  "pillow-heif==0.17.0",
+  "opencv-python==4.10.0.84",
+  "numpy<2",
+  "torch==2.0.1",
+  "torchvision==0.15.2",
+  "basicsr==1.4.2",
+  "realesrgan==0.3.0",
+]
+
+[project.scripts]
+easy-img-web = "web_app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["easy_img_converter*", "web_app*"]
+
+[tool.setuptools.package-data]
+"web_app.app" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
