@@ -1,6 +1,6 @@
 # Easy IMG Studio
 
-Web-based version of Easy IMG Studio using FastAPI + Docker.
+Web-based version of Easy IMG Studio using FastAPI. It runs locally on localhost without Docker and still supports Docker.
 
 ## Features
 
@@ -34,14 +34,28 @@ The API auto-detects matching weight file by model name.
 
 ## Local Run (without Docker)
 
+From the project root:
+
 ```bash
-pip install -r web_app/requirements-web.txt
-uvicorn web_app.app.main:app --reload --port 8000
+python -m pip install -r web_app/requirements-web.txt
+python run_web.py
 ```
 
 Open:
 
-- http://localhost:8000
+- http://127.0.0.1:8000
+
+Optional development reload:
+
+```bash
+python run_web.py --reload
+```
+
+Optional direct ASGI command:
+
+```bash
+python -m uvicorn web_app.app.main:app --host 127.0.0.1 --port 8000
+```
 
 ## Docker Run
 
@@ -53,7 +67,7 @@ docker compose up --build
 
 Open:
 
-- http://localhost:8000
+- http://127.0.0.1:8000
 
 ## API Endpoints
 

@@ -34,7 +34,26 @@ class MainWindow:
         self.root.geometry(WINDOW_SIZE)
         self.root.minsize(*MIN_WINDOW_SIZE)
 
-        self.colors = COLORS
+        self.colors = {
+            **COLORS,
+            "bg": "#eef2f6",
+            "surface": "#ffffff",
+            "surface_alt": "#f7f9fc",
+            "surface_inset": "#f3f6fa",
+            "border": "#ccd6e2",
+            "border_strong": "#aebdcb",
+            "text_main": "#111827",
+            "text_muted": "#526071",
+            "text_soft": "#667085",
+            "primary": "#164b8f",
+            "primary_hover": "#123f78",
+            "primary_soft": "#e8f0fb",
+            "accent": "#0f766e",
+            "pending": "#64748b",
+            "warn": "#a15c07",
+            "ok": "#067647",
+            "bad": "#b42318",
+        }
         self.root.configure(bg=self.colors["bg"])
 
         self.queue = FileQueue()
@@ -60,7 +79,8 @@ class MainWindow:
         self.status_text = tk.StringVar(value="Ready")
         self.progress_text = tk.StringVar(value="0 / 0")
         self.progress_value = tk.DoubleVar(value=0)
-        self.preview_meta = tk.StringVar(value="No image selected")
+        self.preview_meta = tk.StringVar(value="Select a file to view dimensions, format, and size.")
+        self.queue_summary = tk.StringVar(value="No files queued")
 
         self._setup_style()
         self._build_ui()
@@ -69,14 +89,33 @@ class MainWindow:
         style = ttk.Style()
         style.theme_use("clam")
 
+        style.configure(".", font=("Segoe UI", 9))
         style.configure("Root.TFrame", background=self.colors["bg"])
-        style.configure("Card.TFrame", background=self.colors["surface"], borderwidth=1, relief="solid")
+        style.configure("Header.TFrame", background=self.colors["bg"])
+        style.configure(
+            "Card.TFrame",
+            background=self.colors["surface"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=self.colors["border"],
+        )
+        style.configure("Section.TFrame", background=self.colors["surface"])
+        style.configure("Toolbar.TFrame", background=self.colors["surface"])
+        style.configure(
+            "Inset.TFrame",
+            background=self.colors["surface_inset"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=self.colors["border"],
+        )
+        style.configure("Status.TFrame", background=self.colors["surface"])
+        style.configure("TLabel", background=self.colors["bg"], foreground=self.colors["text_main"])
 
         style.configure(
             "Header.TLabel",
             background=self.colors["bg"],
             foreground=self.colors["text_main"],
-            font=("Segoe UI Semibold", 22),
+            font=("Segoe UI Semibold", 18),
         )
         style.configure(
             "SubHeader.TLabel",
@@ -88,7 +127,7 @@ class MainWindow:
             "CardTitle.TLabel",
             background=self.colors["surface"],
             foreground=self.colors["text_main"],
-            font=("Segoe UI Semibold", 11),
+            font=("Segoe UI Semibold", 12),
         )
         style.configure(
             "Info.TLabel",
@@ -97,11 +136,19 @@ class MainWindow:
             font=("Segoe UI", 9),
         )
         style.configure(
+            "Pill.TLabel",
+            background=self.colors["primary_soft"],
+            foreground=self.colors["primary"],
+            font=("Segoe UI Semibold", 9),
+            padding=(10, 4),
+        )
+        style.configure(
             "PreviewMeta.TLabel",
             background=self.colors["surface"],
             foreground=self.colors["text_muted"],
             font=("Consolas", 9),
         )
+        style.configure("TButton", font=("Segoe UI", 9), padding=(10, 6))
         style.configure(
             "Primary.TButton",
             font=("Segoe UI Semibold", 10),
@@ -111,29 +158,71 @@ class MainWindow:
             focusthickness=0,
             padding=(12, 7),
         )
-        style.map("Primary.TButton", background=[("active", self.colors["primary_hover"])])
-        style.configure("Soft.TButton", font=("Segoe UI", 9), padding=(10, 6))
-        style.configure("Treeview", font=("Segoe UI", 9), rowheight=26, fieldbackground=self.colors["surface"])
-        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9))
-        style.configure("Accent.Horizontal.TProgressbar", troughcolor="#e8eef6", background=self.colors["accent"])
+        style.map(
+            "Primary.TButton",
+            background=[("disabled", "#9db7d6"), ("active", self.colors["primary_hover"])],
+            bordercolor=[("disabled", "#9db7d6"), ("active", self.colors["primary_hover"])],
+            foreground=[("disabled", "#f8fafc"), ("active", "#ffffff")],
+        )
+        style.configure(
+            "Soft.TButton",
+            font=("Segoe UI", 9),
+            padding=(10, 6),
+            background=self.colors["surface_alt"],
+            foreground=self.colors["text_main"],
+            bordercolor=self.colors["border"],
+        )
+        style.map("Soft.TButton", background=[("active", "#edf3fb")], bordercolor=[("active", self.colors["border_strong"])])
+        style.configure("TEntry", fieldbackground="#ffffff", bordercolor=self.colors["border"], padding=5)
+        style.configure("TSpinbox", fieldbackground="#ffffff", bordercolor=self.colors["border"], padding=5)
+        style.configure("TCombobox", fieldbackground="#ffffff", bordercolor=self.colors["border"], padding=5, arrowsize=14)
+        style.map("TCombobox", fieldbackground=[("readonly", "#ffffff")])
+        style.configure(
+            "Treeview",
+            font=("Segoe UI", 9),
+            rowheight=30,
+            background="#ffffff",
+            fieldbackground="#ffffff",
+            foreground=self.colors["text_main"],
+            bordercolor=self.colors["border"],
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=("Segoe UI Semibold", 9),
+            background="#eef3f8",
+            foreground=self.colors["text_main"],
+            relief="flat",
+            padding=(6, 7),
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", "#dbeafe")],
+            foreground=[("selected", "#10233f")],
+        )
+        style.configure("Accent.Horizontal.TProgressbar", troughcolor="#e5e7eb", background=self.colors["accent"])
 
     def _build_ui(self):
         main = ttk.Frame(self.root, style="Root.TFrame", padding=18)
         main.pack(fill="both", expand=True)
 
-        ttk.Label(main, text=APP_TITLE, style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        header = ttk.Frame(main, style="Header.TFrame")
+        header.grid(row=0, column=0, sticky="we", pady=(0, 16))
+        header.columnconfigure(0, weight=1)
+
+        ttk.Label(header, text=APP_TITLE, style="Header.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            main,
-            text="Convert or enhance images in bulk with live queue status and preview.",
+            header,
+            text="Batch conversion and Real-ESRGAN enhancement in a focused local workspace.",
             style="SubHeader.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(0, 14))
+        ).grid(row=1, column=0, sticky="w")
+        ttk.Label(header, text="Local processing", style="Pill.TLabel").grid(row=0, column=1, rowspan=2, sticky="e")
 
         workspace = ttk.Frame(main, style="Root.TFrame")
-        workspace.grid(row=2, column=0, sticky="nsew")
+        workspace.grid(row=1, column=0, sticky="nsew")
         workspace.columnconfigure(0, weight=3)
         workspace.columnconfigure(1, weight=2)
         workspace.rowconfigure(0, weight=1)
-        main.rowconfigure(2, weight=1)
+        main.rowconfigure(1, weight=1)
         main.columnconfigure(0, weight=1)
 
         self._build_left_panel(workspace)
@@ -143,17 +232,21 @@ class MainWindow:
         self._sync_model_path_with_selection(force=True)
 
     def _build_left_panel(self, parent):
-        left_card = ttk.Frame(parent, style="Card.TFrame", padding=14)
+        left_card = ttk.Frame(parent, style="Card.TFrame", padding=18)
         left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         left_card.columnconfigure(0, weight=1)
         left_card.rowconfigure(2, weight=1)
 
-        ttk.Label(left_card, text="File Queue", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(left_card, text="Select one or many files. Click a row to preview.", style="Info.TLabel").grid(
+        queue_header = ttk.Frame(left_card, style="Section.TFrame")
+        queue_header.grid(row=0, column=0, sticky="we")
+        queue_header.columnconfigure(0, weight=1)
+        ttk.Label(queue_header, text="Queue", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(queue_header, textvariable=self.queue_summary, style="Info.TLabel").grid(row=0, column=1, sticky="e")
+        ttk.Label(left_card, text="Add images, review source details, then process the batch.", style="Info.TLabel").grid(
             row=1, column=0, sticky="w", pady=(0, 10)
         )
 
-        table_frame = ttk.Frame(left_card, style="Card.TFrame")
+        table_frame = ttk.Frame(left_card, style="Inset.TFrame")
         table_frame.grid(row=2, column=0, sticky="nsew")
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
@@ -183,7 +276,7 @@ class MainWindow:
         self.table.tag_configure("done", foreground=self.colors["ok"])
         self.table.tag_configure("failed", foreground=self.colors["bad"])
 
-        actions = ttk.Frame(left_card, style="Card.TFrame")
+        actions = ttk.Frame(left_card, style="Toolbar.TFrame")
         actions.grid(row=3, column=0, sticky="we", pady=(10, 0))
         self.add_button = ttk.Button(actions, text="Add Images", command=self.add_images, style="Primary.TButton")
         self.add_button.pack(side="left")
@@ -203,37 +296,32 @@ class MainWindow:
         right.rowconfigure(1, weight=3)
         right.columnconfigure(0, weight=1)
 
-        preview_card = ttk.Frame(right, style="Card.TFrame", padding=14)
+        preview_card = ttk.Frame(right, style="Card.TFrame", padding=18)
         preview_card.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         preview_card.rowconfigure(1, weight=1)
         preview_card.columnconfigure(0, weight=1)
 
-        ttk.Label(preview_card, text="Preview", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(preview_card, text="Preview & File Details", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
 
         self.preview_canvas = tk.Canvas(
             preview_card,
-            height=220,
-            bg="#eaf0f7",
+            height=230,
+            bg=self.colors["surface_inset"],
             highlightthickness=1,
             highlightbackground=self.colors["border"],
             bd=0,
         )
         self.preview_canvas.grid(row=1, column=0, sticky="nsew", pady=(8, 8))
-        self.preview_canvas.create_text(
-            180,
-            110,
-            text="Select a file to preview",
-            fill="#75879f",
-            font=("Segoe UI", 10),
-        )
+        self.preview_canvas.bind("<Configure>", self._redraw_preview_if_empty)
+        self._draw_preview_placeholder()
 
         ttk.Label(preview_card, textvariable=self.preview_meta, style="PreviewMeta.TLabel").grid(row=2, column=0, sticky="w")
 
-        settings_card = ttk.Frame(right, style="Card.TFrame", padding=14)
+        settings_card = ttk.Frame(right, style="Card.TFrame", padding=18)
         settings_card.grid(row=1, column=0, sticky="nsew")
         settings_card.columnconfigure(1, weight=1)
 
-        ttk.Label(settings_card, text="Settings", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(settings_card, text="Processing Settings", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
 
         ttk.Label(settings_card, text="Mode", style="Info.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 4))
         self.mode_combo = ttk.Combobox(
@@ -242,25 +330,26 @@ class MainWindow:
         self.mode_combo.grid(row=1, column=1, sticky="w", pady=(10, 4))
         self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_change)
 
-        self.convert_frame = ttk.Frame(settings_card, style="Card.TFrame")
+        self.convert_frame = ttk.Frame(settings_card, style="Section.TFrame")
         self.convert_frame.grid(row=2, column=0, columnspan=3, sticky="we", pady=(6, 0))
         self.convert_frame.columnconfigure(1, weight=1)
 
         ttk.Label(self.convert_frame, text="Target Format", style="Info.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        format_combo = ttk.Combobox(
+        self.format_combo = ttk.Combobox(
             self.convert_frame,
             textvariable=self.target_format,
             values=list(self.format_map.keys()),
             state="readonly",
             width=18,
         )
-        format_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
-        format_combo.bind("<<ComboboxSelected>>", self.on_target_change)
+        self.format_combo.grid(row=0, column=1, sticky="w", pady=(0, 4))
+        self.format_combo.bind("<<ComboboxSelected>>", self.on_target_change)
 
         ttk.Label(self.convert_frame, text="Quality (JPEG/WEBP)", style="Info.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Spinbox(self.convert_frame, from_=1, to=100, textvariable=self.quality, width=6).grid(row=1, column=1, sticky="w")
+        self.quality_spinbox = ttk.Spinbox(self.convert_frame, from_=1, to=100, textvariable=self.quality, width=6)
+        self.quality_spinbox.grid(row=1, column=1, sticky="w")
 
-        self.enhance_frame = ttk.Frame(settings_card, style="Card.TFrame")
+        self.enhance_frame = ttk.Frame(settings_card, style="Section.TFrame")
         self.enhance_frame.grid(row=3, column=0, columnspan=3, sticky="we", pady=(8, 0))
         self.enhance_frame.columnconfigure(1, weight=1)
 
@@ -340,7 +429,7 @@ class MainWindow:
         )
         self.progress.grid(row=8, column=0, columnspan=3, sticky="we", pady=(12, 6))
 
-        status_row = ttk.Frame(settings_card, style="Card.TFrame")
+        status_row = ttk.Frame(settings_card, style="Status.TFrame")
         status_row.grid(row=9, column=0, columnspan=3, sticky="we")
         status_row.columnconfigure(0, weight=1)
         ttk.Label(status_row, textvariable=self.status_text, style="Info.TLabel").grid(row=0, column=0, sticky="w")
@@ -351,6 +440,8 @@ class MainWindow:
             self.remove_button,
             self.clear_button,
             self.mode_combo,
+            self.format_combo,
+            self.quality_spinbox,
             self.profile_combo,
             self.model_combo,
             self.scale_combo,
@@ -366,6 +457,78 @@ class MainWindow:
         if self.mode.get() == "Convert":
             return self.format_map[self.target_format.get()][1].replace(".", "").upper()
         return "ENHANCE"
+
+    def _refresh_queue_summary(self):
+        total = len(self.queue)
+        if total == 0:
+            self.queue_summary.set("No files queued")
+            return
+
+        counts = {"Done": 0, "Failed": 0, "Converting": 0}
+        for row_id in self.table.get_children():
+            values = self.table.item(row_id, "values")
+            if len(values) >= 5 and values[4] in counts:
+                counts[values[4]] += 1
+
+        label = "file" if total == 1 else "files"
+        parts = [f"{total} {label}"]
+        if counts["Converting"]:
+            parts.append(f"{counts['Converting']} processing")
+        if counts["Done"]:
+            parts.append(f"{counts['Done']} done")
+        if counts["Failed"]:
+            parts.append(f"{counts['Failed']} failed")
+        self.queue_summary.set(" | ".join(parts))
+
+    def _draw_preview_placeholder(self):
+        self.preview_canvas.delete("all")
+        width = max(self.preview_canvas.winfo_width(), 320)
+        height = max(self.preview_canvas.winfo_height(), 220)
+        icon_w = 96
+        icon_h = 68
+        left = (width - icon_w) / 2
+        top = (height - icon_h) / 2 - 18
+        right = left + icon_w
+        bottom = top + icon_h
+        self.preview_canvas.create_rectangle(
+            left,
+            top,
+            right,
+            bottom,
+            outline=self.colors["border_strong"],
+            width=2,
+        )
+        self.preview_canvas.create_line(
+            left + 12,
+            bottom - 16,
+            left + 38,
+            bottom - 42,
+            left + 62,
+            bottom - 20,
+            left + 84,
+            bottom - 48,
+            fill=self.colors["border_strong"],
+            width=2,
+        )
+        self.preview_canvas.create_oval(
+            right - 30,
+            top + 12,
+            right - 18,
+            top + 24,
+            outline=self.colors["border_strong"],
+            width=2,
+        )
+        self.preview_canvas.create_text(
+            width / 2,
+            bottom + 28,
+            text="Select a queued image to preview",
+            fill=self.colors["text_soft"],
+            font=("Segoe UI", 10),
+        )
+
+    def _redraw_preview_if_empty(self, _event=None):
+        if self.preview_image_ref is None:
+            self._draw_preview_placeholder()
 
     def add_images(self):
         files = filedialog.askopenfilenames(
@@ -398,6 +561,7 @@ class MainWindow:
 
         self.status_text.set(f"Added {added} new file(s).")
         self.progress_text.set(f"{len(self.queue)} queued")
+        self._refresh_queue_summary()
 
     def remove_selected(self):
         selection = self.table.selection()
@@ -410,6 +574,7 @@ class MainWindow:
 
         self.status_text.set("Selected file removed.")
         self.progress_text.set(f"{len(self.queue)} queued")
+        self._refresh_queue_summary()
 
     def clear_images(self):
         self.queue.clear()
@@ -418,7 +583,8 @@ class MainWindow:
         self.progress_value.set(0)
         self.progress_text.set("0 / 0")
         self.status_text.set("Queue cleared.")
-        self.preview_meta.set("No image selected")
+        self.preview_meta.set("Select a file to view dimensions, format, and size.")
+        self._refresh_queue_summary()
         self._clear_preview()
 
     def select_output_folder(self):
@@ -560,26 +726,21 @@ class MainWindow:
             self._show_preview(file_path)
 
     def _clear_preview(self):
-        self.preview_canvas.delete("all")
-        self.preview_canvas.create_text(
-            180,
-            110,
-            text="Select a file to preview",
-            fill="#75879f",
-            font=("Segoe UI", 10),
-        )
         self.preview_image_ref = None
+        self._draw_preview_placeholder()
 
     def _show_preview(self, file_path):
         try:
             with Image.open(file_path) as img:
                 width, height = img.size
                 img_copy = img.convert("RGBA")
-                img_copy.thumbnail((340, 210))
+                canvas_w = max(self.preview_canvas.winfo_width(), 340)
+                canvas_h = max(self.preview_canvas.winfo_height(), 220)
+                img_copy.thumbnail((canvas_w - 28, canvas_h - 28))
 
                 self.preview_image_ref = ImageTk.PhotoImage(img_copy)
                 self.preview_canvas.delete("all")
-                self.preview_canvas.create_image(170, 105, image=self.preview_image_ref)
+                self.preview_canvas.create_image(canvas_w / 2, canvas_h / 2, image=self.preview_image_ref)
                 self.preview_meta.set(
                     f"{Path(file_path).name} | {width}x{height}px | {format_size(Path(file_path).stat().st_size)}"
                 )
@@ -604,6 +765,7 @@ class MainWindow:
             tag = "failed"
 
         self.table.item(row_id, values=values, tags=(tag,))
+        self._refresh_queue_summary()
 
     def _set_busy_state(self, busy):
         self.is_processing = busy
@@ -615,12 +777,14 @@ class MainWindow:
 
         # Keep readonly combobox behavior when re-enabled.
         if not busy:
-            for combo in (self.mode_combo, self.profile_combo, self.model_combo, self.scale_combo):
+            for combo in (self.mode_combo, self.format_combo, self.profile_combo, self.model_combo, self.scale_combo):
                 combo.configure(state="readonly")
 
     def _finish_jobs(self, mode, total, completed, failed, skipped, output_dir):
         self.last_output_dir = output_dir
+        self.progress_value.set(100 if total else 0)
         self.status_text.set(f"Completed. Success: {completed}, Failed: {failed}, Skipped: {skipped}")
+        self._refresh_queue_summary()
         self._set_busy_state(False)
         messagebox.showinfo(
             "Job Finished",

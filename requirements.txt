@@ -1,5 +1,3 @@
-pillow
-opencv-python
-torch
-realesrgan
-basicsr
+# Shared local runtime dependencies for the desktop and browser apps.
+# Docker installs the same web stack from web_app/requirements-web.txt.
+-r web_app/requirements-web.txt

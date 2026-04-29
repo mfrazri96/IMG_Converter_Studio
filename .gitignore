@@ -26,3 +26,16 @@ weights/
 # Build / cache
 .pytest_cache/
 .mypy_cache/
+
+# Helix generated-file rules
+node_modules/
+dist/
+build/
+coverage/
+.tmp*/
+.env
+.env.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

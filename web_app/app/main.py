@@ -5,14 +5,20 @@ import time
 import uuid
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
-import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+
+try:
+    import cv2
+except Exception:
+    cv2 = None
+
 try:
     from pillow_heif import register_heif_opener
 except Exception:
@@ -116,6 +122,50 @@ def safe_output_path(output_dir: Path, stem: str, extension: str) -> Path:
     return candidate
 
 
+def safe_upload_name(filename: Optional[str]) -> str:
+    raw_name = (filename or "").strip()
+    name = PureWindowsPath(PurePosixPath(raw_name).name).name
+    if not name or name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+    return name
+
+
+def safe_download_name(filename: str) -> str:
+    name = filename
+    if not name or name in {".", ".."} or name != PurePosixPath(name).name or name != PureWindowsPath(name).name:
+        raise HTTPException(status_code=404, detail="File not found")
+    return name
+
+
+def save_uploads(files: List[UploadFile], input_dir: Path) -> List[Path]:
+    if not files:
+        raise HTTPException(status_code=400, detail="Choose at least one image file")
+
+    input_paths: List[Path] = []
+    for upload in files:
+        upload_name = safe_upload_name(upload.filename)
+        upload_path = Path(upload_name)
+        dst = safe_output_path(input_dir, upload_path.stem, upload_path.suffix)
+        with dst.open("wb") as f:
+            shutil.copyfileobj(upload.file, f)
+        input_paths.append(dst)
+    return input_paths
+
+
+def resolve_job_output(job_id: str, filename: str) -> Path:
+    safe_name = safe_download_name(filename)
+    with job_lock:
+        job = jobs.get(job_id)
+        if not job or safe_name not in job.outputs:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    output_dir = (OUTPUT_DIR / job_id).resolve()
+    file_path = (output_dir / safe_name).resolve()
+    if file_path.parent != output_dir or not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return file_path
+
+
 def prepare_for_format(image: Image.Image, save_format: str) -> Image.Image:
     if save_format in {"JPEG", "BMP"} and image.mode in ("RGBA", "LA", "P"):
         rgba = image.convert("RGBA")
@@ -143,7 +193,7 @@ def detect_weights(model_name: str) -> Optional[Path]:
 
 def build_upsampler(model_name: str, tile: int):
     if RealESRGANer is None or RRDBNet is None:
-        raise RuntimeError("Real-ESRGAN dependencies are missing. Install requirements-web.txt")
+        raise RuntimeError("Real-ESRGAN dependencies are missing. Install with: python -m pip install -r requirements.txt")
 
     if model_name not in REALESRGAN_MODEL_CONFIGS:
         raise RuntimeError(f"Unsupported model: {model_name}")
@@ -171,6 +221,13 @@ def set_job(update_id: str, **kwargs):
             setattr(job, k, v)
 
 
+def finish_job(job_id: str):
+    with job_lock:
+        job = jobs[job_id]
+        job.status = "failed" if job.failed and job.done == 0 else "completed"
+        job.finished_at = time.time()
+
+
 def run_convert_job(job_id: str, input_files: List[Path], output_dir: Path, target_format: str, quality: int):
     set_job(job_id, status="running", started_at=time.time())
     save_format, extension = FORMAT_MAP[target_format]
@@ -195,15 +252,29 @@ def run_convert_job(job_id: str, input_files: List[Path], output_dir: Path, targ
                 jobs[job_id].failed += 1
                 jobs[job_id].errors.append(f"{src.name}: {exc}")
 
-    set_job(job_id, status="completed", finished_at=time.time())
+    finish_job(job_id)
 
 
 def run_enhance_job(job_id: str, input_files: List[Path], output_dir: Path, model_name: str, outscale: int, tile: int):
     set_job(job_id, status="running", started_at=time.time())
+    if cv2 is None:
+        with job_lock:
+            job = jobs[job_id]
+            job.status = "failed"
+            job.failed = job.total
+            job.finished_at = time.time()
+            job.errors = ["OpenCV dependency is missing. Install with: python -m pip install -r requirements.txt"]
+        return
+
     try:
         upsampler = build_upsampler(model_name=model_name, tile=tile)
     except Exception as exc:
-        set_job(job_id, status="failed", finished_at=time.time(), errors=[str(exc)])
+        with job_lock:
+            job = jobs[job_id]
+            job.status = "failed"
+            job.failed = job.total
+            job.finished_at = time.time()
+            job.errors = [str(exc)]
         return
 
     for src in input_files:
@@ -226,7 +297,7 @@ def run_enhance_job(job_id: str, input_files: List[Path], output_dir: Path, mode
                 jobs[job_id].failed += 1
                 jobs[job_id].errors.append(f"{src.name}: {exc}")
 
-    set_job(job_id, status="completed", finished_at=time.time())
+    finish_job(job_id)
 
 
 def create_job(mode: str, total: int) -> JobState:
@@ -245,6 +316,11 @@ def list_models():
     }
 
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "service": "easy-img-studio"}
+
+
 @app.post("/api/jobs/convert")
 async def create_convert_job(
     files: List[UploadFile] = File(...),
@@ -254,6 +330,8 @@ async def create_convert_job(
     target_format = target_format.lower()
     if target_format not in FORMAT_MAP:
         raise HTTPException(status_code=400, detail="Unsupported target format")
+    if not files:
+        raise HTTPException(status_code=400, detail="Choose at least one image file")
 
     quality = max(1, min(100, int(quality)))
     job = create_job(mode="convert", total=len(files))
@@ -263,12 +341,7 @@ async def create_convert_job(
     job_input_dir.mkdir(parents=True, exist_ok=True)
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
-    input_paths = []
-    for up in files:
-        dst = job_input_dir / Path(up.filename).name
-        with dst.open("wb") as f:
-            shutil.copyfileobj(up.file, f)
-        input_paths.append(dst)
+    input_paths = save_uploads(files, job_input_dir)
 
     t = threading.Thread(
         target=run_convert_job,
@@ -289,8 +362,12 @@ async def create_enhance_job(
 ):
     if model_name not in REALESRGAN_MODEL_CONFIGS:
         raise HTTPException(status_code=400, detail="Unsupported Real-ESRGAN model")
+    if not files:
+        raise HTTPException(status_code=400, detail="Choose at least one image file")
 
     outscale = int(outscale)
+    if outscale not in {2, 4}:
+        raise HTTPException(status_code=400, detail="Output scale must be 2 or 4")
     tile = max(0, int(tile))
 
     job = create_job(mode="enhance", total=len(files))
@@ -300,12 +377,7 @@ async def create_enhance_job(
     job_input_dir.mkdir(parents=True, exist_ok=True)
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
-    input_paths = []
-    for up in files:
-        dst = job_input_dir / Path(up.filename).name
-        with dst.open("wb") as f:
-            shutil.copyfileobj(up.file, f)
-        input_paths.append(dst)
+    input_paths = save_uploads(files, job_input_dir)
 
     t = threading.Thread(
         target=run_enhance_job,
@@ -334,7 +406,7 @@ def get_job(job_id: str):
             "done": job.done,
             "failed": job.failed,
             "errors": job.errors[-5:],
-            "outputs": [f"/api/download/{job.id}/{name}" for name in job.outputs],
+            "outputs": [f"/api/download/{job.id}/{quote(name, safe='')}" for name in job.outputs],
             "download_all": download_all,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
@@ -343,10 +415,8 @@ def get_job(job_id: str):
 
 @app.get("/api/download/{job_id}/{filename}")
 def download_output(job_id: str, filename: str):
-    file_path = OUTPUT_DIR / job_id / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=str(file_path), filename=filename)
+    file_path = resolve_job_output(job_id, filename)
+    return FileResponse(path=str(file_path), filename=file_path.name)
 
 
 @app.get("/api/download-zip/{job_id}")
@@ -357,12 +427,18 @@ def download_all_outputs(job_id: str):
             raise HTTPException(status_code=404, detail="Job not found")
         if job.status == "running":
             raise HTTPException(status_code=409, detail="Job is still running. Please wait until completion.")
+        output_names = list(job.outputs)
 
-    output_dir = OUTPUT_DIR / job_id
+    output_dir = (OUTPUT_DIR / job_id).resolve()
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Job output not found")
 
-    files = [p for p in output_dir.iterdir() if p.is_file() and p.name != "_all_outputs.zip"]
+    files = []
+    for name in output_names:
+        safe_name = safe_download_name(name)
+        file_path = (output_dir / safe_name).resolve()
+        if file_path.parent == output_dir and file_path.is_file():
+            files.append(file_path)
     if not files:
         raise HTTPException(status_code=404, detail="No output files for this job")
 
